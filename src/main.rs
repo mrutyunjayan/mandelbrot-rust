@@ -4,6 +4,7 @@ use std::str::FromStr;
 use image::png::PNGEncoder;
 use image::ColorType;
 use num::Complex;
+use rayon::prelude::*;
 
 //parses a string, looks for a specified seperator, and returns two strings, splitting the two strings at the seperator
 fn parse_pair<T: FromStr>(s: &str, seperator: char) -> Option<(T, T)> {
@@ -111,30 +112,15 @@ fn main() {
 
     let mut pixels = vec![0; bounds.0 * bounds.1];
 
-    let threads = 6;
+    let bands = pixels.chunks_mut(bounds.0).enumerate().collect::<Vec<_>>();
 
-    let rows_per_band = bounds.1 / threads + 1;
-
-    let bands = pixels
-        .chunks_mut(rows_per_band * bounds.0)
-        .collect::<Vec<_>>();
-
-    //using fork-join parallelism
-    crossbeam::scope(|spawner| {
-        for (i, band) in bands.into_iter().enumerate() {
-            let top = rows_per_band * i;
-            let height = band.len() / bounds.0;
-            let band_bounds = (bounds.0, height);
-            let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
-            let band_lower_right =
-                pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
-
-            spawner.spawn(move |_| {
-                render(band, band_bounds, band_upper_left, band_lower_right);
-            });
-        }
-    })
-    .unwrap();
+    bands.into_par_iter().for_each(|(i, band)| {
+        let top = i;
+        let band_bounds = (bounds.0, 1);
+        let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
+        let band_lower_right = pixel_to_point(bounds, (bounds.0, top + 1), upper_left, lower_right);
+        render(band, band_bounds, band_upper_left, band_lower_right);
+    });
 
     write_image(&args[1], &pixels, bounds).expect("error writing PNG file");
 }
